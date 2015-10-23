@@ -1,0 +1,142 @@
+---
+title: "Qualitative Rating of Exercises Using Accelerometers"
+author: "Jason Arpino"
+date: "Sunday, October 25, 2015"
+output: html_document
+---
+
+# Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this paper, we use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The data for this analysis comes from Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+
+# Summary
+
+Using the data from the various accelerometers we were able build a model using the random forest method that when tested against our validation data showed an accuracy of 0.9961. 
+
+# Process
+
+## Obtaining Data and Loading Libraries 
+
+We being by obtaining the training and test data and loading the necessary libraries for analysis.
+
+```{r, warning=FALSE, cache=TRUE, tidy=TRUE}
+install_load <- function (package1, ...)  {   
+  
+  # convert arguments to vector
+  packages <- c(package1, ...)
+  
+  # start loop to determine if each package is installed
+  for(package in packages){
+    
+    # if package is installed locally, load
+    if(package %in% rownames(installed.packages()))
+      do.call('library', list(package))
+    
+    # if package is not installed locally, download, then load
+    else {
+      install.packages(package)
+      do.call("library", list(package))
+    }
+  } 
+}
+
+install_load("caret","randomForest", "e1071")
+
+trainURL <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+trainFile <- "./data/training.csv"
+testFile  <- "./data/testing.csv"
+
+if (!file.exists("./data")) {
+  dir.create("./data")
+}
+
+if (!file.exists(trainFile)) {
+  download.file(trainURL, destfile=trainFile)
+}
+
+if (!file.exists(testFile)) {
+  download.file(testURL, destfile=testFile)
+}
+
+trainRawData <- read.csv("./data/training.csv")
+testRawData<- read.csv("./data/testing.csv")
+```
+
+## Data Exploration and Cleansing
+
+We then go through the process of doing an initial exploration and cleaning the training data.
+
+```{r, warning=FALSE, cache=TRUE, tidy=TRUE}
+str(trainRawData)
+
+sum(complete.cases(trainRawData)) 
+```
+
+From the above code we can see that there are 406 comple cases of data and there are a number of columns that are empty which should be removed. Also there is a number of columns at the beginning of the training data that are probably not of use to us and can be removed for the purposes of this analysis and model building. 
+
+```{r, warning=FALSE, cache=TRUE, tidy=TRUE}
+trainClean <- trainRawData[, colSums(is.na(trainRawData)) == 0]
+
+classe <- trainClean$classe
+removeColumns <- grepl("^X|timestamp|window", names(trainClean))
+trainClean <- trainClean[, !removeColumns]
+trainClean <- trainClean[, sapply(trainClean, is.numeric)]
+trainClean$classe <- classe
+
+summary(trainClean)
+```
+
+You can see we removed all of the unnecessary data and ensured all of the columns were of type numeric for easier analysis. Since we will be using the classe column to validate the model, we saved it and added it back to the cleaned training dataset. 
+
+## Partitioning Data
+
+Next we partitioned the dataset into a training and validation set. This way we can validate the model before testing it against the testing dataset.
+
+```{r, warning=FALSE, cache=TRUE, tidy=TRUE}
+partition <- createDataPartition(y=trainClean$classe, p=0.70, list=FALSE)
+
+trainData <- trainClean[partition, ]
+validateData <- trainClean[-partition, ]
+```
+
+## Model Building
+
+For this model we are going to use a random forest due to their tendency to have high accuracy given the number of variables and the complex relationships between those variables. 
+
+```{r, warning=FALSE, cache=TRUE, tidy=TRUE}
+set.seed(1337)
+model <- randomForest(classe ~ ., data=trainData, importance=TRUE, proximity=TRUE)
+model
+```
+
+Based upon the training dataset, we were able to develop a model with an OOB estimate of error rate of %0.58.
+
+## Model Validation
+
+Next we will validate the model based using the partition of the training data that was not used to create the model.
+
+
+```{r, warning=FALSE, cache=TRUE, tidy=TRUE}
+predict <- predict(model, validateData)
+confusionMatrix(validateData$classe, predict)
+```
+
+We can see that using the model that was developed we were able to make predictions on the validation data with an accuracy of 0.9947.
+
+## Model Testing
+
+We will then go through the same data cleaning steps we went through for the test data and use the model to make predictions based upon the testing dataset. 
+
+```{r}
+testRemoveColumns <- grepl("^X|timestamp|window", names(testRawData))
+testClean <- testRawData[, !testRemoveColumns]
+testClean <- testClean[, sapply(testClean, is.numeric)]
+
+testPredict <- predict(model, testClean[, -length(names(testClean))])
+testPredict
+```
+
+
